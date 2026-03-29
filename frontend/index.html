@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Voice Agent</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #080810; color: #eee; min-height: 100vh; padding: 24px; }
+
+    .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+    .top h1 { font-size: 18px; font-weight: 500; }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #1d9e75; display: inline-block; margin-right: 6px; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+    .card { background: #12121e; border: 0.5px solid #ffffff18; border-radius: 12px; padding: 16px; }
+    .card-label { font-size: 11px; color: #666; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .card-value { font-size: 28px; font-weight: 500; }
+    .card-sub { font-size: 11px; color: #555; margin-top: 4px; }
+
+    .c-book { color: #1d9e75; }
+    .c-cancel { color: #e24b4a; }
+    .c-escalate { color: #ef9f27; }
+    .c-general { color: #7f77dd; }
+
+    .conf-bar { height: 4px; background: #ffffff12; border-radius: 2px; margin-top: 10px; }
+    .conf-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; background: #7f77dd; }
+
+    .middle { display: grid; grid-template-columns: 1fr 320px; gap: 12px; }
+
+    .mic-panel { background: #12121e; border: 0.5px solid #ffffff18; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+    #btn { width: 72px; height: 72px; border-radius: 50%; border: none; background: #7f77dd; color: white; font-size: 15px; cursor: pointer; transition: all 0.2s; }
+    #btn.recording { background: #e24b4a; transform: scale(1.08); }
+    #status { font-size: 13px; color: #666; }
+
+    .intent-history { background: #12121e; border: 0.5px solid #ffffff18; border-radius: 12px; padding: 16px; }
+    .intent-history h3 { font-size: 12px; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+    .intent-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 0.5px solid #ffffff08; font-size: 13px; }
+    .intent-row:last-child { border-bottom: none; }
+    .intent-pill { font-size: 10px; padding: 3px 10px; border-radius: 20px; }
+    .pill-book { background: #0d3326; color: #1d9e75; }
+    .pill-cancel { background: #3d1a1a; color: #e24b4a; }
+    .pill-escalate { background: #3d2a0a; color: #ef9f27; }
+    .pill-general { background: #1e1e3d; color: #7f77dd; }
+
+    .log-panel { background: #12121e; border: 0.5px solid #ffffff18; border-radius: 12px; padding: 16px; margin-top: 12px; max-height: 300px; overflow-y: auto; }
+    .log-panel h3 { font-size: 12px; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+    .msg { padding: 10px 14px; border-radius: 8px; font-size: 13px; line-height: 1.5; margin-bottom: 8px; }
+    .user { background: #1a1a2e; border-left: 3px solid #7f77dd; }
+    .agent { background: #0d2018; border-left: 3px solid #1d9e75; }
+    .system { color: #444; font-size: 12px; padding: 4px 0; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <h1><span class="live-dot"></span>Voice Agent Dashboard</h1>
+    <span style="font-size:12px;color:#444" id="session-label">Session starting...</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-label">Last intent</div>
+      <div class="card-value c-general" id="last-intent">—</div>
+      <div class="card-sub" id="intent-sub">Waiting...</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Confidence</div>
+      <div class="card-value" id="confidence">—</div>
+      <div class="conf-bar"><div class="conf-fill" id="conf-fill" style="width:0%"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Messages</div>
+      <div class="card-value" id="msg-count">0</div>
+      <div class="card-sub">Total turns</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Escalations</div>
+      <div class="card-value c-escalate" id="escalations">0</div>
+      <div class="card-sub">Human requests</div>
+    </div>
+  </div>
+
+  <div class="middle">
+    <div>
+      <div class="mic-panel">
+        <button id="btn">mic</button>
+        <div id="status">Ready — hold to speak</div>
+      </div>
+      <div class="log-panel">
+        <h3>Conversation</h3>
+        <div id="log"></div>
+      </div>
+    </div>
+
+    <div class="intent-history">
+      <h3>Intent history</h3>
+      <div id="intent-log"></div>
+    </div>
+  </div>
+
+  <script>
+    const SESSION_ID = crypto.randomUUID();
+    document.getElementById('session-label').textContent = 'Session: ' + SESSION_ID.slice(0,8);
+
+    const btn = document.getElementById('btn');
+    const status = document.getElementById('status');
+    const log = document.getElementById('log');
+    const intentLog = document.getElementById('intent-log');
+    let msgCount = 0, escalations = 0;
+
+    const ws = new WebSocket(`ws://localhost:8000/ws/${SESSION_ID}`);
+    ws.onopen = () => addLog('system', 'Connected');
+    ws.onclose = () => addLog('system', 'Disconnected');
+    ws.onerror = () => addLog('system', 'Connection error');
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+
+      if (msg.type === 'transcript') {
+        msgCount++;
+        document.getElementById('msg-count').textContent = msgCount;
+
+        const intent = msg.intent || 'general';
+        const conf = msg.confidence || 0;
+
+        document.getElementById('last-intent').textContent = intent;
+        document.getElementById('last-intent').className = `card-value c-${intent}`;
+        document.getElementById('confidence').textContent = conf + '%';
+        document.getElementById('conf-fill').style.width = conf + '%';
+        document.getElementById('conf-fill').style.background =
+          intent === 'book' ? '#1d9e75' :
+          intent === 'cancel' ? '#e24b4a' :
+          intent === 'escalate' ? '#ef9f27' : '#7f77dd';
+        document.getElementById('intent-sub').textContent =
+          intent === 'book' ? 'Appointment request' :
+          intent === 'cancel' ? 'Cancellation request' :
+          intent === 'escalate' ? 'Human agent needed' : 'General query';
+
+        if (intent === 'escalate') {
+          escalations++;
+          document.getElementById('escalations').textContent = escalations;
+        }
+
+        addIntentRow(msg.text, intent, conf);
+        addLog('user', msg.text, intent, conf);
+
+      } else if (msg.type === 'reply') {
+        addLog('agent', msg.text);
+        if (msg.audio) {
+          const audio = new Audio('data:audio/mp3;base64,' + msg.audio);
+          audio.play();
+        }
+      } else if (msg.type === 'status') {
+        status.textContent = msg.text;
+      } else if (msg.type === 'error') {
+        addLog('system', 'Error: ' + msg.text);
+      }
+    };
+
+    let mediaRecorder, chunks = [];
+
+    btn.addEventListener('mousedown', startRecording);
+    btn.addEventListener('mouseup', stopRecording);
+    btn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
+    btn.addEventListener('touchend', e => { e.preventDefault(); stopRecording(); });
+
+    async function startRecording() {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => chunks.push(e.data);
+      mediaRecorder.onstop = sendAudio;
+      mediaRecorder.start();
+      btn.classList.add('recording');
+      btn.textContent = '...';
+      status.textContent = 'Recording...';
+    }
+
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(t => t.stop());
+      }
+      btn.classList.remove('recording');
+      btn.textContent = 'mic';
+      status.textContent = 'Processing...';
+    }
+
+    async function sendAudio() {
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const buffer = await blob.arrayBuffer();
+      ws.send(buffer);
+    }
+
+    function addLog(type, text, intent, conf) {
+      const div = document.createElement('div');
+      div.className = `msg ${type}`;
+      if (type === 'user') {
+        div.innerHTML = `<span style="color:#888;font-size:11px">You</span><br>${text}` +
+          (intent ? `<span class="intent-pill pill-${intent}" style="margin-left:8px">${intent} ${conf}%</span>` : '');
+      } else if (type === 'agent') {
+        div.innerHTML = `<span style="color:#888;font-size:11px">Agent</span><br>${text}`;
+      } else {
+        div.className = 'system';
+        div.textContent = text;
+      }
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function addIntentRow(text, intent, conf) {
+      const row = document.createElement('div');
+      row.className = 'intent-row';
+      const short = text.length > 22 ? text.slice(0, 22) + '...' : text;
+      row.innerHTML = `<span style="color:#aaa">${short}</span><span class="intent-pill pill-${intent}">${intent}</span>`;
+      intentLog.insertBefore(row, intentLog.firstChild);
+    }
+  </script>
+</body>
+</html>
